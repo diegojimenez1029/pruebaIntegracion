@@ -34,24 +34,31 @@ pipeline {
         }
 
         stage('Iniciar API') {
-            steps {
-                script {
-                    if (isUnix()) {
-                        sh 'nohup json-server --watch db.json --port 3001 &'
-                        sh 'sleep 5'
-                        def response = sh(script: 'curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/posts', returnStdout: true).trim()
-                    } else {
-                        bat 'start /B json-server --watch db.json --port 3001'
-                        bat 'timeout /t 5'
-                        def response = bat(script: '@powershell -command "(Invoke-WebRequest -Uri http://localhost:3001/posts -UseBasicParsing).StatusCode"', returnStdout: true).trim()
-                    }
-                    
-                    if (response != "200") {
-                        error("API no responde. Código: ${response}")
-                    }
-                }
+    steps {
+        script {
+            // 1. Iniciar el servidor y redirigir output a un archivo
+            bat 'start /B json-server --watch db.json --port 3001 > server.log 2>&1'
+            
+            // 2. Esperar que el servidor esté listo
+            bat 'timeout /t 10'
+            
+            // 3. Verificar si el puerto está en uso
+            def portCheck = bat(script: '@powershell -command "Test-NetConnection -ComputerName localhost -Port 3001"', returnStdout: true)
+            if (!portCheck.contains('TcpTestSucceeded : True')) {
+                error("El servidor no se inició correctamente")
             }
+            
+            // 4. Verificar respuesta HTTP
+            def response = bat(script: '@powershell -command "(Invoke-WebRequest -Uri http://localhost:3001/posts -UseBasicParsing).StatusCode"', returnStdout: true).trim()
+            if (response != "200") {
+                error("API no responde. Código: ${response}")
+            }
+            
+            // 5. Mostrar logs para diagnóstico
+            bat 'type server.log'
         }
+    }
+}
     }
 
     post {
