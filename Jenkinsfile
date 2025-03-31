@@ -1,49 +1,41 @@
 pipeline {
-    agent any
-
+  
+    agent {
+        label 'windows' // Asegúrate de tener un agente con esta etiqueta
+    }
     stages {
         stage('Clonar repositorio') {
             steps {
-                git branch: 'main',
-                url: 'https://github.com/diegojimenez1029/pruebaIntegracion.git'
+                bat 'git clone https://github.com/diegojimenez1029/pruebaIntegracion.git'
+                dir('pruebaIntegracion') {
+                    bat 'git checkout master'
+                }
             }
         }
 
         stage('Instalar dependencias') {
             steps {
-                sh 'npm install'
+                bat 'npm install'
             }
         }
 
-        stage('Iniciar y validar API') {
+        stage('Iniciar API') {
             steps {
-                // Iniciar el servidor en segundo plano
-                sh 'nohup json-server --watch db.json --port 3001 &'
-                
-                // Esperar que el servidor esté listo
-                sh 'sleep 5'
-                
-                // Validar que la API responde
+                bat 'start /B json-server --watch db.json --port 3001'
+                bat 'timeout /t 5'
                 script {
-                    def response = sh(script: 'curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/posts', returnStdout: true).trim()
-                    
+                    def response = bat(script: '@powershell -command "(Invoke-WebRequest -Uri http://localhost:3001/posts -UseBasicParsing).StatusCode"', returnStdout: true).trim()
                     if (response != "200") {
-                        error("La API no respondió correctamente. Código HTTP: ${response}")
-                    } else {
-                        echo "✅ API respondió correctamente (HTTP 200)"
+                        error("API no responde. Código: ${response}")
                     }
                 }
-                
-                // Detener el servidor después de la validación
-                sh 'pkill -f "json-server" || true'
             }
         }
     }
 
     post {
         always {
-            // Limpieza: asegurarse de que el servidor se detuvo
-            sh 'pkill -f "json-server" || true'
+            bat 'taskkill /F /IM node.exe /T || exit 0'
         }
     }
 }
