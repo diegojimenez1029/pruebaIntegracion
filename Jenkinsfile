@@ -4,7 +4,7 @@ pipeline {
     stages {
         stage('Preparar entorno') {
             steps {
-                cleanWs() // Limpia el workspace antes de comenzar
+                cleanWs()
             }
         }
 
@@ -21,27 +21,38 @@ pipeline {
 
         stage('Instalar dependencias') {
             steps {
+                bat 'npm install -g json-server'
                 bat 'npm install'
             }
         }
 
-        stage('Iniciar API') {
+        stage('Iniciar y probar API') {
             steps {
                 script {
-                    // Iniciar json-server en segundo plano
-                    bat 'start "" /B json-server --watch db.json --port 3001'
+                    // 1. Iniciar el servidor de forma asíncrona
+                    bat '''
+                    @echo off
+                    set PIDFILE=server.pid
                     
-                    // Esperar 10 segundos para que el servidor inicie
-                    bat 'timeout /t 10'
+                    :: Iniciar json-server y guardar PID
+                    start "JSON Server" /B cmd /C "json-server --watch db.json --port 3001 & echo %%~dpnx0 > %PIDFILE%"
                     
-                    // Verificar si el servidor está respondiendo
-                    def status = bat(script: '@powershell -command "(Invoke-WebRequest -Uri \'http://localhost:3001/posts\' -UseBasicParsing).StatusCode"', returnStdout: true).trim()
+                    :: Esperar inicio
+                    timeout /t 10
                     
-                    if (status != '200') {
-                        error("La API no respondió correctamente. Código: ${status}")
-                    } else {
-                        echo "✅ API funcionando correctamente"
-                    }
+                    :: Verificar respuesta
+                    curl -s -o response.txt -w "%%{http_code}" http://localhost:3001/posts
+                    set /p STATUS=<response.txt
+                    
+                    if not "%STATUS%"=="200" (
+                        echo ERROR: API no responde. Código: %STATUS%
+                        type response.txt
+                        taskkill /F /FI "WINDOWTITLE eq JSON Server*" > nul 2>&1
+                        exit 1
+                    )
+                    
+                    echo API iniciada correctamente
+                    '''
                 }
             }
         }
@@ -49,11 +60,11 @@ pipeline {
 
     post {
         always {
-            // Limpieza: detener cualquier instancia de json-server
-            bat 'taskkill /F /IM node.exe /T > nul 2>&1 || exit 0'
-            
-            // Opcional: Archivar logs para diagnóstico
-            archiveArtifacts artifacts: '**/server.log', allowEmptyArchive: true
+            // Limpieza garantizada
+            bat '''
+            taskkill /F /FI "WINDOWTITLE eq JSON Server*" > nul 2>&1 || exit 0
+            del server.pid response.txt > nul 2>&1 || exit 0
+            '''
         }
     }
 }
