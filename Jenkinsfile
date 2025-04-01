@@ -1,6 +1,12 @@
 pipeline {
     agent any
 
+    environment {
+        // Ruta donde npm instala los paquetes globales
+        NPM_GLOBAL = bat(script: 'npm root -g', returnStdout: true).trim()
+        PATH = "${NPM_GLOBAL};${env.PATH}"
+    }
+
     stages {
         stage('Preparar entorno') {
             steps {
@@ -22,6 +28,8 @@ pipeline {
         stage('Instalar dependencias') {
             steps {
                 bat 'npm install -g json-server'
+                // Verificar instalación
+                bat 'where json-server'
                 bat 'npm install'
             }
         }
@@ -29,30 +37,37 @@ pipeline {
         stage('Iniciar y probar API') {
             steps {
                 script {
-                    // 1. Iniciar el servidor de forma asíncrona
-                    bat '''
-                    @echo off
-                    set PIDFILE=server.pid
-                    
-                    :: Iniciar json-server y guardar PID
-                    start "JSON Server" /B cmd /C "json-server --watch db.json --port 3001 & echo %%~dpnx0 > %PIDFILE%"
-                    
-                    :: Esperar inicio
-                    timeout /t 10
-                    
-                    :: Verificar respuesta
-                    curl -s -o response.txt -w "%%{http_code}" http://localhost:3001/posts
-                    set /p STATUS=<response.txt
-                    
-                    if not "%STATUS%"=="200" (
-                        echo ERROR: API no responde. Código: %STATUS%
-                        type response.txt
-                        taskkill /F /FI "WINDOWTITLE eq JSON Server*" > nul 2>&1
-                        exit 1
-                    )
-                    
-                    echo API iniciada correctamente
-                    '''
+                    try {
+                        // 1. Iniciar json-server directamente (sin start)
+                        bat """
+                        set PIDFILE=server.pid
+                        json-server --watch db.json --port 3001 > server.log 2>&1 &
+                        echo %ERRORLEVEL% > %PIDFILE%
+                        """
+                        
+                        // 2. Esperar inicio
+                        bat 'timeout /t 15'
+                        
+                        // 3. Verificar proceso
+                        def pid = readFile('server.pid').trim()
+                        if (pid != "0") {
+                            error("Error al iniciar json-server. Código: ${pid}")
+                        }
+                        
+                        // 4. Verificar API
+                        def status = bat(
+                            script: '@powershell -command "(Invoke-WebRequest -Uri \'http://localhost:3001/posts\' -UseBasicParsing).StatusCode"',
+                            returnStdout: true
+                        ).trim()
+                        
+                        if (status != '200') {
+                            error("API no responde. Código: ${status}")
+                        }
+                    } catch (e) {
+                        // Mostrar logs en caso de error
+                        bat 'type server.log || echo No hay logs'
+                        throw e
+                    }
                 }
             }
         }
@@ -62,8 +77,8 @@ pipeline {
         always {
             // Limpieza garantizada
             bat '''
-            taskkill /F /FI "WINDOWTITLE eq JSON Server*" > nul 2>&1 || exit 0
-            del server.pid response.txt > nul 2>&1 || exit 0
+            taskkill /F /IM node.exe /T > nul 2>&1 || exit 0
+            del server.pid server.log > nul 2>&1 || exit 0
             '''
         }
     }
