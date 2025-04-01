@@ -2,9 +2,8 @@ pipeline {
     agent any
 
     environment {
-        // Ruta donde npm instala los paquetes globales
-        NPM_GLOBAL = bat(script: 'npm root -g', returnStdout: true).trim()
-        PATH = "${NPM_GLOBAL};${env.PATH}"
+        // Usar npx para evitar problemas de PATH
+        JSON_SERVER = 'npx json-server'
     }
 
     stages {
@@ -27,10 +26,12 @@ pipeline {
 
         stage('Instalar dependencias') {
             steps {
-                bat 'npm install -g json-server'
-                // Verificar instalación
-                bat 'where json-server'
+                // Instalar localmente en lugar de globalmente
+                bat 'npm install json-server'
                 bat 'npm install'
+                
+                // Verificar instalación local
+                bat 'dir node_modules\\.bin\\json-server*'
             }
         }
 
@@ -38,14 +39,14 @@ pipeline {
             steps {
                 script {
                     try {
-                        // 1. Iniciar json-server directamente (sin start)
+                        // 1. Iniciar json-server localmente
                         bat """
                         set PIDFILE=server.pid
-                        json-server --watch db.json --port 3001 > server.log 2>&1 &
+                        node_modules\\.bin\\json-server --watch db.json --port 3001 > server.log 2>&1 &
                         echo %ERRORLEVEL% > %PIDFILE%
                         """
                         
-                        // 2. Esperar inicio
+                        // 2. Esperar inicio (15 segundos)
                         bat 'timeout /t 15'
                         
                         // 3. Verificar proceso
@@ -54,18 +55,20 @@ pipeline {
                             error("Error al iniciar json-server. Código: ${pid}")
                         }
                         
-                        // 4. Verificar API
+                        // 4. Verificar API con PowerShell
                         def status = bat(
                             script: '@powershell -command "(Invoke-WebRequest -Uri \'http://localhost:3001/posts\' -UseBasicParsing).StatusCode"',
                             returnStdout: true
                         ).trim()
                         
                         if (status != '200') {
+                            bat 'type server.log'
                             error("API no responde. Código: ${status}")
+                        } else {
+                            echo "✅ API funcionando correctamente"
                         }
                     } catch (e) {
-                        // Mostrar logs en caso de error
-                        bat 'type server.log || echo No hay logs'
+                        bat 'type server.log || echo No hay logs disponibles'
                         throw e
                     }
                 }
