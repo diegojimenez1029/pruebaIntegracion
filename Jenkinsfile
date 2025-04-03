@@ -16,7 +16,10 @@ pipeline {
 
         stage('Iniciar servidor') {
             steps {
-                bat 'start /b json-server --watch db.json --port 3000'
+                bat '''
+                    start /b json-server --watch db.json --port 3000
+                    exit 0
+                '''
                 script {
                     sleep(time: 10, unit: "SECONDS") // Esperar que el servidor arranque
                 }
