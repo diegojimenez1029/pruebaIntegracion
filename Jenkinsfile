@@ -23,28 +23,13 @@ pipeline {
         }
 
         stage('Iniciar servidor') {
-            steps {
-                script {
-                    // 1. Limpiar procesos previos
-                    bat 'taskkill /F /IM node.exe /T > nul 2>&1 || exit 0'
-                    
-                    // 2. Crear db.json si no existe
-                    bat 'if not exist db.json echo {} > db.json'
-                    
-                    // 3. Iniciar json-server y capturar PID correctamente
-                    bat '''
-                    set PIDFILE=server.pid
-                    start "JSONServer" /B cmd /C "node_modules\\.bin\\json-server --watch db.json --port 3000 > server.log 2>&1 & echo !^! > %PIDFILE%"
-                    '''
-                    
-                    // 4. Esperar 15 segundos para que el servidor inicie
-                    sleep 15
-                    
-                    // 5. Verificar que el archivo PID existe
-                    bat 'if not exist server.pid exit 1'
-                }
-            }
+    steps {
+        script {
+            bat 'start cmd.exe /c "json-server --watch db.json --port 3000"'
         }
+        sleep(time: 10, unit: "SECONDS") // Esperar que el servidor arranque
+    }
+}
 
         stage('Probar API') {
             steps {
