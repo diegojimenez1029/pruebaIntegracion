@@ -16,13 +16,10 @@ pipeline {
 
         stage('Iniciar servidor') {
             steps {
-                bat '''
-                    start /b json-server --watch db.json --port 3000
-                    exit 0
-                '''
                 script {
-                    sleep(time: 10, unit: "SECONDS") // Esperar que el servidor arranque
+                    bat 'wmic process call create "cmd.exe /c json-server --watch db.json --port 3000"'
                 }
+                sleep(time: 10, unit: "SECONDS") // Esperar que el servidor arranque
             }
         }
 
