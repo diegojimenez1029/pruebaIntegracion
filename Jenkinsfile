@@ -9,10 +9,10 @@ pipeline {
         }
         
         stage('Instalar dependencias') {
-            steps {
-                sh 'npm install'
-            }
-        }
+    steps {
+        bat 'npm install'
+    }
+}
 
         stage('Iniciar servidor') {
             steps {
