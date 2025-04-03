@@ -2,36 +2,70 @@ pipeline {
     agent any
 
     stages {
-        stage('Clonar repositorio') {
+        stage('Preparar entorno') {
             steps {
-                git 'https://github.com/diegojimenez1029/pruebaIntegracion.git'
+                cleanWs()
             }
         }
-        
+
+        stage('Clonar repositorio') {
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: '*/master']],
+                    extensions: [],
+                    userRemoteConfigs: [[url: 'https://github.com/diegojimenez1029/pruebaIntegracion.git']]
+                ])
+            }
+        }
+
         stage('Instalar dependencias') {
             steps {
+                bat 'npm install json-server'
                 bat 'npm install'
             }
         }
 
-        stage('Iniciar servidor') {
+        stage('Iniciar y probar API') {
             steps {
                 script {
-                    bat 'wmic process call create "cmd.exe /c json-server --watch db.json --port 3000"'
+                    // 1. Iniciar el servidor en un paso separado
+                    bat 'start "JSON Server" cmd /C node_modules\\.bin\\json-server --watch db.json --port 3001'
+                    
+                    // 2. Esperar que el servidor inicie
+                    bat 'timeout /t 15'
+                    
+                    // 3. Verificar que el puerto esté en uso
+                    def portInUse = bat(
+                        script: '@powershell -command "Test-NetConnection -ComputerName localhost -Port 3001 | Select-Object -ExpandProperty TcpTestSucceeded"',
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (portInUse != 'True') {
+                        error("El puerto 3001 no está siendo usado por json-server")
+                    }
+                    
+                    // 4. Verificar respuesta HTTP
+                    def status = bat(
+                        script: '@powershell -command "(Invoke-WebRequest -Uri \'http://localhost:3001/posts\' -UseBasicParsing).StatusCode"',
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (status != '200') {
+                        error("API no responde. Código: ${status}")
+                    }
+                    
+                    echo "✅ API funcionando correctamente"
                 }
-                sleep(time: 10, unit: "SECONDS") // Esperar que el servidor arranque
             }
         }
+    }
 
-        stage('Probar API') {
-            steps {
-                script {
-                    def response = bat(script: 'curl -s -o nul -w "%%{http_code}" http://localhost:3000', returnStdout: true).trim()
-                    if (response != '200') {
-                        error("La API no respondió correctamente")
-                    }
-                }
-            }
+    post {
+        always {
+            // Limpieza garantizada
+            bat 'taskkill /F /IM node.exe /T > nul 2>&1 || exit 0'
+            bat 'taskkill /FI "WINDOWTITLE eq JSON Server*" /F > nul 2>&1 || exit 0'
         }
     }
 }
